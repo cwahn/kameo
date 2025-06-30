@@ -1,7 +1,9 @@
 use std::{
     cell::Cell,
     collections::HashMap,
-    fmt, ops,
+    fmt,
+    hash::{Hash, Hasher},
+    ops,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -102,11 +104,15 @@ where
         &self,
         name: impl Into<std::borrow::Cow<'static, str>>,
     ) -> Result<(), error::RegistryError> {
-        crate::registry::ACTOR_REGISTRY
+        let was_inserted = crate::registry::ACTOR_REGISTRY
             .lock()
             .unwrap()
             .insert(name, self.clone());
-        Ok(())
+        if !was_inserted {
+            Err(error::RegistryError::NameAlreadyRegistered)
+        } else {
+            Ok(())
+        }
     }
 
     /// Registers the actor under a given name within the actor swarm.
@@ -905,6 +911,20 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
     }
 }
 
+impl<A: Actor> PartialEq for ActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<A: Actor> Eq for ActorRef<A> {}
+
+impl<A: Actor> Hash for ActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A type-erased actor reference for bidirectional communication with a single message type.
 ///
 /// Supports both `tell` and `ask` operations, with response types determined by the
@@ -1057,6 +1077,22 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> fmt::Debug
     }
 }
 
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialEq
+    for ReplyRecipient<M, Ok, Err>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Eq for ReplyRecipient<M, Ok, Err> {}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Hash for ReplyRecipient<M, Ok, Err> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
+    }
+}
+
 /// A type erased actor ref, accepting only a single message type.
 ///
 /// This is returned by [ActorRef::recipient].
@@ -1178,6 +1214,20 @@ impl<M: Send + 'static> fmt::Debug for Recipient<M> {
     }
 }
 
+impl<M: Send + 'static> PartialEq for Recipient<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<M: Send + 'static> Eq for Recipient<M> {}
+
+impl<M: Send + 'static> Hash for Recipient<M> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
+    }
+}
+
 /// A reference to an actor running remotely.
 ///
 /// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
@@ -1207,9 +1257,16 @@ where
         self.id
     }
 
-    /// Looks up an actor registered by name across the distributed network.
+    /// Looks up a single actor registered by name across the distributed network.
     ///
-    /// Returns `Some` if the actor is found, or `None` if no actor with the given name is registered.
+    /// If multiple actors are registered under the same name, returns one of them.
+    /// The specific actor returned is not deterministic and may vary between calls.
+    ///
+    /// Returns `None` if no actor with the given name is found.
+    ///
+    /// Use [`lookup_all`] when multiple actors might exist and you need deterministic behavior.
+    ///
+    /// [`lookup_all`]: Self::lookup_all
     pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
@@ -1218,6 +1275,23 @@ where
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
             .lookup(name.to_string())
             .await
+    }
+
+    /// Looks up all actors registered by name across the distributed network.
+    ///
+    /// Returns a stream of all remote actor refs found under the given name.
+    /// The stream completes when all known actors have been discovered.
+    ///
+    /// Use this when multiple actors may be registered under the same name
+    /// and you need to handle all of them or make deterministic choices.
+    pub fn lookup_all(name: &str) -> remote::LookupStream<A>
+    where
+        A: remote::RemoteActor + 'static,
+    {
+        match remote::ActorSwarm::get() {
+            Some(swarm) => swarm.lookup_all(name.to_string()),
+            None => remote::LookupStream::new_err(),
+        }
     }
 
     /// Sends a message to the remote actor and waits for a reply.
@@ -1431,6 +1505,23 @@ impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
     }
 }
 
+#[cfg(feature = "remote")]
+impl<A: Actor> PartialEq for RemoteActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> Eq for RemoteActorRef<A> {}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> Hash for RemoteActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -1510,6 +1601,20 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
     }
 }
 
+impl<A: Actor> PartialEq for WeakActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<A: Actor> Eq for WeakActorRef<A> {}
+
+impl<A: Actor> Hash for WeakActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A weak recipient that does not prevent the actor from being stopped.
 pub struct WeakRecipient<M: Send + 'static> {
     handler: Box<dyn WeakMessageHandler<M>>,
@@ -1560,6 +1665,20 @@ impl<A: Actor> fmt::Debug for WeakRecipient<A> {
         let mut d = f.debug_struct("WeakRecipient");
         d.field("id", &self.handler.id());
         d.finish()
+    }
+}
+
+impl<A: Actor> PartialEq for WeakRecipient<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<A: Actor> Eq for WeakRecipient<A> {}
+
+impl<A: Actor> Hash for WeakRecipient<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
     }
 }
 
@@ -1614,6 +1733,20 @@ impl<A: Actor, Ok: Send + 'static, Err: ReplyError> fmt::Debug for WeakReplyReci
         let mut d = f.debug_struct("WeakReplyRecipient");
         d.field("id", &self.handler.id());
         d.finish()
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> PartialEq for WeakReplyRecipient<A, Ok, Err> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Eq for WeakReplyRecipient<A, Ok, Err> {}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Hash for WeakReplyRecipient<A, Ok, Err> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
     }
 }
 
