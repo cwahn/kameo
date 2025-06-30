@@ -1,10 +1,22 @@
 use std::time::Duration;
 
 use futures::TryStreamExt;
-use kameo::prelude::*;
-use libp2p::swarm::dial_opts::DialOpts;
+use kameo::{
+    actor::RemoteActorRef,
+    prelude::{Context, Message},
+    remote::{ActorSwarm, ActorSwarmBehaviour},
+    remote_message, Actor, RemoteActor,
+};
+use libp2p::{
+    kad::{self, store::MemoryStore},
+    mdns,
+    request_response::{self, ProtocolSupport},
+    swarm::dial_opts::DialOpts,
+    StreamProtocol, SwarmBuilder,
+};
+
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
@@ -64,17 +76,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bootstrap the actor swarm
     if is_host {
-        ActorSwarm::bootstrap()?
-            .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
-            .await?;
+        // ActorSwarm::bootstrap()?
+        //     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
+        //     .await?;
+
+        let actor_swarm = ActorSwarm::bootstrap_with_swarm(
+            SwarmBuilder::with_new_identity()
+                .with_tokio()
+                .with_tcp(
+                    Default::default(),
+                    // (libp2p_tls::Config::new, libp2p_noise::Config::new),
+                    libp2p_noise::Config::new,
+                    libp2p_yamux::Config::default,
+                )?
+                .with_behaviour(|keypair| {
+                    Ok(ActorSwarmBehaviour {
+                        kademlia: kad::Behaviour::new(
+                            keypair.public().to_peer_id(),
+                            MemoryStore::new(keypair.public().to_peer_id()),
+                        ),
+                        mdns: mdns::tokio::Behaviour::new(
+                            mdns::Config::default(),
+                            keypair.public().to_peer_id(),
+                        )?,
+                        request_response: request_response::cbor::Behaviour::new(
+                            [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
+                            request_response::Config::default(),
+                        ),
+                    })
+                })?
+                .build(),
+        )?
+        // .listen_on(MULTI_ADDR.parse()?)
+        .listen_on("/ip4/0.0.0.0/tcp/8020".parse()?)
+        .await?;
     } else {
-        let res = ActorSwarm::bootstrap()?
-            .dial(
-                DialOpts::unknown_peer_id()
-                    .address("/ip4/127.0.0.1/udp/8020/quic-v1".parse()?)
-                    .build(),
-            )
-            .await;
+        // let res = ActorSwarm::bootstrap()?
+        //     .dial(
+        //         DialOpts::unknown_peer_id()
+        //             .address("/ip4/127.0.0.1/udp/8020/quic-v1".parse()?)
+        //             .build(),
+        //     )
+        //     .await;
+
+        let res = ActorSwarm::bootstrap_with_swarm(
+            SwarmBuilder::with_new_identity()
+                .with_tokio()
+                .with_tcp(
+                    Default::default(),
+                    // (libp2p_tls::Config::new, libp2p_noise::Config::new),
+                    libp2p_noise::Config::new,
+                    libp2p_yamux::Config::default,
+                )?
+                .with_behaviour(|keypair| {
+                    Ok(ActorSwarmBehaviour {
+                        kademlia: kad::Behaviour::new(
+                            keypair.public().to_peer_id(),
+                            MemoryStore::new(keypair.public().to_peer_id()),
+                        ),
+                        mdns: mdns::tokio::Behaviour::new(
+                            mdns::Config::default(),
+                            keypair.public().to_peer_id(),
+                        )?,
+                        request_response: request_response::cbor::Behaviour::new(
+                            [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
+                            request_response::Config::default(),
+                        ),
+                    })
+                })?
+                .build(),
+        )?
+        .dial(
+            DialOpts::unknown_peer_id()
+                .address("/ip4/127.0.0.1/tcp/8020".parse()?)
+                .build(),
+        )
+        .await;
 
         match res {
             Ok(peer_id) => info!("connected to host with peer ID: {peer_id}"),
@@ -82,8 +159,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 error!("failed to connect to host: {e}");
             }
         }
-        // ActorSwarm::bootstrap()?;
-        // warn!("Not dialing to any peer, if it workd, it's because of mDNS discovery");
     }
 
     if is_host {
