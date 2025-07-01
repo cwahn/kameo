@@ -109,6 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?
         // .listen_on(MULTI_ADDR.parse()?)
         .listen_on("/ip4/0.0.0.0/tcp/8020".parse()?)
+        // .listen_on("/ip4/0.0.0.0/tcp/8020/noise".parse()?)
         .await?;
     } else {
         // let res = ActorSwarm::bootstrap()?
