@@ -6,7 +6,7 @@ use std::{
 
 use futures::{ready, stream::FuturesUnordered, Future, FutureExt, Stream, StreamExt};
 use libp2p::{
-    core::{connection, transport::ListenerId, ConnectedPoint},
+    core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
     kad::{
         self,
@@ -251,12 +251,10 @@ impl ActorSwarm {
     /// ## Returns
     /// A `SwarmFuture` that resolves to either `Ok` if the dialing succeeds or a `DialError` if it fails.
     pub fn dial(&self, opts: impl Into<DialOpts>) -> SwarmFuture<Result<PeerId, DialError>> {
-        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
+        self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
             opts: opts.into(),
             reply,
-        });
-
-        reply_rx
+        })
     }
 
     /// Adds an external address for a remote peer, allowing the swarm to discover and connect to that peer.
@@ -637,7 +635,7 @@ impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
 pub struct ActorSwarmHandler {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
-    dialing: HashMap<ConnectionId, oneshot::Sender<Result<PeerId, DialError>>>,
+    dialings: HashMap<ConnectionId, oneshot::Sender<Result<PeerId, DialError>>>,
     get_queries: HashMap<
         kad::QueryId,
         mpsc::UnboundedSender<Result<ActorRegistration<'static>, RegistryError>>,
@@ -660,7 +658,7 @@ impl ActorSwarmHandler {
         ActorSwarmHandler {
             cmd_tx: tx,
             cmd_rx: rx,
-            dialing: HashMap::new(),
+            dialings: HashMap::new(),
             get_queries: HashMap::new(),
             put_queries: HashMap::new(),
             provider_queries: HashMap::new(),
@@ -692,7 +690,7 @@ impl ActorSwarmHandler {
                         SwarmEvent::OutgoingConnectionError { peer_id, connection_id, error } => {
                             self.handle_event(swarm, ActorSwarmEvent::OutgoingConnectionError { peer_id, connection_id, error });
                         },
-                        // ! No extra information from this event other than it is working as expected
+                        // ! No extra information from this event other than it is working as expected.
                         // SwarmEvent::Dialing { connection_id, peer_id } => {
                         //     self.handle_event(swarm, ActorSwarmEvent::Dialing { connection_id, peer_id });
                         // },
@@ -734,7 +732,7 @@ impl ActorSwarmHandler {
                 let connection_id = opts.connection_id();
 
                 if let Ok(()) = swarm.dial(opts) {
-                    self.dialing.insert(connection_id, reply);
+                    self.dialings.insert(connection_id, reply);
                 } else {
                     // todo Handle dialing attempt failure
                 }
@@ -997,13 +995,9 @@ impl ActorSwarmHandler {
             ActorSwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
-                endpoint,
-                num_established,
-                concurrent_dial_errors,
-                established_in,
+                ..
             } => {
-                // Notify dialing task if it exists
-                if let Some(tx) = self.dialing.remove(&connection_id) {
+                if let Some(tx) = self.dialings.remove(&connection_id) {
                     let _ = tx.send(Ok(peer_id));
                 }
 
@@ -1039,13 +1033,13 @@ impl ActorSwarmHandler {
                 });
             }
             ActorSwarmEvent::OutgoingConnectionError {
-                peer_id,
+                peer_id: _,
                 connection_id,
                 error,
             } => {
                 // Notify dialing task if it exists
-                if let Some(tx) = self.dialing.remove(&connection_id) {
-                    let _ = tx.send(Err(DialError::from(error)));
+                if let Some(tx) = self.dialings.remove(&connection_id) {
+                    let _ = tx.send(Err(error));
                 }
             }
             // ActorSwarmEvent::Dialing {
@@ -1849,13 +1843,13 @@ pub enum ActorSwarmEvent {
         cause: Option<ConnectionError>,
     },
     // ! No extra information from Dialing event other that it initiated properly.
-    // /// A new dialing attempt has been initiated by the [`NetworkBehaviour`]
-    // /// implementation.
-    // ///
-    // /// A [`ConnectionEstablished`](SwarmEvent::ConnectionEstablished) event is
-    // /// reported if the dialing attempt succeeds, otherwise a
-    // /// [`OutgoingConnectionError`](SwarmEvent::OutgoingConnectionError) event
-    // /// is reported.
+    /// A new dialing attempt has been initiated by the [`NetworkBehaviour`]
+    /// implementation.
+    ///
+    /// A [`ConnectionEstablished`](SwarmEvent::ConnectionEstablished) event is
+    /// reported if the dialing attempt succeeds, otherwise a
+    /// [`OutgoingConnectionError`](SwarmEvent::OutgoingConnectionError) event
+    /// is reported.
     // Dialing {
     //     /// Identity of the peer that we are connecting to.
     //     peer_id: Option<PeerId>,
@@ -1863,7 +1857,7 @@ pub enum ActorSwarmEvent {
     //     /// Identifier of the connection.
     //     connection_id: ConnectionId,
     // },
-    /// Network behaviour event.
+    // /// Network behaviour event.
     Behaviour(Box<ActorSwarmBehaviourEvent>),
 }
 

@@ -17,6 +17,7 @@ use libp2p::{
 
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
