@@ -15,9 +15,8 @@ use libp2p::{
     StreamProtocol, SwarmBuilder,
 };
 
-use log::{debug, error, info};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
@@ -81,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
         //     .await?;
 
-        let actor_swarm = ActorSwarm::bootstrap_with_swarm(
+        let _ = ActorSwarm::bootstrap_with_swarm(
             SwarmBuilder::with_new_identity()
                 .with_tokio()
                 .with_tcp(
@@ -113,14 +112,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // .listen_on("/ip4/0.0.0.0/tcp/8020/noise".parse()?)
         .await?;
     } else {
-        // let res = ActorSwarm::bootstrap()?
-        //     .dial(
-        //         DialOpts::unknown_peer_id()
-        //             .address("/ip4/127.0.0.1/udp/8020/quic-v1".parse()?)
-        //             .build(),
-        //     )
-        //     .await;
-
         let res = ActorSwarm::bootstrap_with_swarm(
             SwarmBuilder::with_new_identity()
                 .with_tokio()
