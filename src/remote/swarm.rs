@@ -884,15 +884,16 @@ impl ActorSwarmHandler {
                         mailbox_timeout,
                         immediate,
                     );
-                    self.requests.insert(req_id, reply);
+                    // self.requests.insert(req_id, reply);
                 }
             }
             SwarmCommand::SendAskResponse { result, channel } => {
                 let _ = swarm.behaviour_mut().send_ask_response(channel, result);
             }
-            SwarmCommand::SendTellResponse { result, channel } => {
-                let _ = swarm.behaviour_mut().send_tell_response(channel, result);
-            }
+            // ! temp
+            // SwarmCommand::SendTellResponse { result, channel } => {
+            //     let _ = swarm.behaviour_mut().send_tell_response(channel, result);
+            // }
             SwarmCommand::Link {
                 actor_id,
                 actor_remote_id,
@@ -1185,7 +1186,8 @@ impl ActorSwarmHandler {
                                 immediate,
                             )
                             .await;
-                            tx.send(SwarmCommand::SendTellResponse { result, channel });
+                            // ! temp
+                            // tx.send(SwarmCommand::SendTellResponse { result, channel });
                         });
                     }
                     SwarmRequest::Link {
@@ -1413,13 +1415,14 @@ pub enum SwarmCommand {
         /// Response channel.
         channel: ResponseChannel<SwarmResponse>,
     },
+    // ! temp
     /// Send a tell response.
-    SendTellResponse {
-        /// Tell result.
-        result: Result<(), RemoteSendError>,
-        /// Response channel.
-        channel: ResponseChannel<SwarmResponse>,
-    },
+    // SendTellResponse {
+    //     /// Tell result.
+    //     result: Result<(), RemoteSendError>,
+    //     /// Response channel.
+    //     channel: ResponseChannel<SwarmResponse>,
+    // },
     /// An actor link request.
     Link {
         /// Actor A ID.

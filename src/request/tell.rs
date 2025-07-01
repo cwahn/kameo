@@ -503,16 +503,19 @@ where
         reply: reply_tx,
     });
 
-    match reply_rx.await.unwrap() {
-        SwarmResponse::Tell(res) => match res {
-            Ok(()) => Ok(()),
-            Err(err) => Err(err),
-        },
-        SwarmResponse::OutboundFailure(err) => {
-            Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
-        }
-        _ => panic!("unexpected response"),
-    }
+    // ! temp
+    // match reply_rx.await.unwrap() {
+    //     SwarmResponse::Tell(res) => match res {
+    //         Ok(()) => Ok(()),
+    //         Err(err) => Err(err),
+    //     },
+    //     SwarmResponse::OutboundFailure(err) => {
+    //         Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
+    //     }
+    //     _ => panic!("unexpected response"),
+    // }
+
+    Ok(())
 }
 
 #[cfg(all(debug_assertions, feature = "tracing"))]
